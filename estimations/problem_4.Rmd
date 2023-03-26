@@ -1,0 +1,116 @@
+---
+title: "Problem 4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(plotly)
+knitr::opts_chunk$set(echo = TRUE)
+read.tcsv <- function(file, header=TRUE, sep=",", ...) 
+{
+  n <- max(count.fields(file, sep=sep), na.rm=TRUE)
+  x <- readLines(file)
+  
+  .splitvar <- function(x, sep, n) {
+    var <- unlist(strsplit(x, split=sep))
+    length(var) <- n
+    return(var)
+  }
+  
+  x <- do.call(cbind, lapply(x, .splitvar, sep=sep, n=n))
+  x <- apply(x, 1, paste, collapse=sep)
+  out <- read.csv(text=x, sep=sep, header=header, na.strings = "", ...)
+  return(out)
+}
+```
+
+
+### Задача № 1
+
+```{r import_data}
+data_csv <- as.numeric(read.tcsv("data.csv", sep = ',')[1:336,10])
+```
+
+Известно, что среднее арифметическое $\overline{X} = \frac{1}{n}(X_1+\dots+X_n)$ стремится к $\mathbb{E}[\zeta]$.
+
+Напишем функцию для случайной величины $\zeta$.
+
+```{r mm_zeta}
+zeta_density <- function(t, theta) 
+  (dnorm(sqrt(t-2), mean = theta, sd = 0.1)+dnorm(-sqrt(t-2), mean = theta,
+                                                  sd = 0.1))/(2*sqrt(t-2))
+```
+
+Рассмотрим математическое ожидание $\zeta$ и воспользуемся некоторыми свойствами: $$\mathbb{E}[2+\xi^2] = \mathbb{E}[2] + \mathbb{E}[\xi^2] = 2 + D[\xi] + \theta^2,$$
+где $\theta$ --- искомый параметр. Известно, что $D[\xi] = 0.01$, тогда
+$$2.01 + \theta^2 \approx \overline{X} \quad \Rightarrow \quad \theta \approx \sqrt{\overline{X}-2.01}.$$
+
+```{r mm_theta}
+est_theta <- sqrt(mean(data_csv)-2.01)
+cat("Estimation of theta is",est_theta)
+
+```
+
+```{r mle}
+get_f_mle <- function(f, x) function(theta) prod(sapply(x, function(t) f(t,theta)))
+get_log_f_mle <- function(f, x) function(theta) log((get_f_mle(f,x))(theta))
+
+zeta_mle <- get_f_mle(zeta_density, data_csv)
+log_zeta_mle <- get_log_f_mle(zeta_density, data_csv)
+
+seq(2.45, 2.55, 0.001)[which.max(sapply(seq(2.45, 2.55, 0.001), zeta_mle))]
+seq(2.45, 2.55, 0.001)[which.max(sapply(seq(2.45, 2.55, 0.001), log_zeta_mle))]
+```
+
+```{r mle_plot, warning=FALSE,message=FALSE}
+plot_ly(x = seq(2.45, 2.55, 0.001), y = sapply(seq(2.45, 2.55, 0.001), zeta_mle), type = 'scatter', mode = 'lines')
+plot_ly(x = seq(2, 3, 0.001), y = sapply(seq(2, 3, 0.001), log_zeta_mle), type = 'scatter', mode = 'lines')
+```
+
+```{r hist, message=F, warning = F}
+est_zeta_density <- function(t) zeta_density(t, est_theta)
+
+hist(data_csv, prob = TRUE, main = "")
+lines(seq(7, 9.5, 0.001), sapply(seq(7, 9.5, 0.001), est_zeta_density), col="blue")
+
+```
+
+```{r pro_func_plot, message=F, warning = F}
+plot_ly(x = seq(6, 10, 0.001), y = sapply(seq(6, 10, 0.001), ecdf(data_csv)),
+        name = "ecdf", type = 'scatter', mode = 'lines') %>%
+  add_trace(x = seq(6, 10, 0.001), 
+            y = sapply(seq(6, 10, 0.001), function(t) integrate(est_zeta_density, 2,t )$value),
+            name = "distr_func") %>% 
+  layout(title = "", showlegend = F, xaxis = list(title = ""), yaxis = list (title = ""))
+```
+
+### Задача № 2
+
+```{r pressure1}
+data1_csv <- as.numeric(read.tcsv("data1.csv", sep = ',')[1:351,5])
+```
+
+$\zeta = x - 4\xi$, где $\xi \sim \mathcal{N}(x, 0.04)$. Оценим неизвестный параметр $x$.
+
+Рассмотрим дисперсию $D[\zeta] = D[x-4\xi] = 4^2D[\xi] = 16\cdot0.04$ (пользуемся свойствами дисперсии: $D[aX] = a^2D[X]$ и $D[X+b] = D[X]$). Тогда математическое ожидание $\mathbb{E}[\zeta] = \mathbb{E}[x-4\xi] = \mathbb{E}[x] - 4\mathbb{E}[\xi] = x - 4x = -3x$ (пользуемся линейностью математического ожидания).
+
+```{r pressure2}
+confidence_interval <- function(i)
+{
+  x0 <- sum(data1_csv[1:i])/i
+  return(c(a = (x0 + qnorm(0.975, i - 1)*(sqrt(16*0.04/i)))/(-3),
+           b = (x0 - qnorm(0.975, i - 1)*(sqrt(16*0.04/i)))/(-3)))
+}
+
+sapply(c("5" = 5, "10" = 10, "100" = 100, "300" = 300), confidence_interval)
+```
+
+### Задача № 3
+
+```{r asd}
+data2_csv <- read.tcsv("data2.csv", sep = ',')[1:115,9:10]
+M <-  sum(as.numeric(data2_csv[[1]])/as.numeric(data2_csv[[2]]))/sum(1/as.numeric(data2_csv[[2]]))
+M
+```
+
+

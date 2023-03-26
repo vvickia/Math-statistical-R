@@ -1,0 +1,306 @@
+---
+title: "Problem 3"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set()
+```
+
+### Пункт № 1
+Построить $100$ точек, равномерно распределенных на замкнутой кривой,
+состоящей из дуги, заданной уравнением $x-y+y^4=0$ и отрезка оси $y$.
+
+#### Решение
+Обозначим через $A$ и $B$ начало и конец отрезка на оси $y$ соответственно.
+$A = 0$, а $B = 1$, так как при таких значениях $y$ кривая $x-y+y^4=0$
+пересекает ось ординат. И пусть $N$ --- количество точек, которые необходимо
+построить, то есть $N = 100$ по условию. 
+
+```{r setup data}
+A <- 0; B <- 1; N <- 100
+```
+
+Преобразуем исходное уравнение $x=y-y^4$ и нарисуем кривую, на которой нужно случайно выбрать точки. Для визуализации воспользуемся пакетом Plotly.
+
+```{r the curve plot, warning=FALSE, message=FALSE}
+library(plotly)
+
+x <- function(y) -y^4 + y
+dx <- function(y) { 1-4*y^3 }
+
+get_curve_plot <- function(f, a, b) 
+{
+  y_val <- c(seq(a, b, length.out = 1000),a)
+  x_val <- sapply(y_val, f)
+  fig <- plot_ly(x = x_val, y = y_val, name = "curve", type = 'scatter', mode = 'lines',
+                 color = I('darkred'))
+  fig <- fig %>% layout(title = "The Curve Plot",
+                        xaxis = list(title = 'x', range = c(-0.05, 0.5)),
+                        yaxis = list(title = 'y')) 
+  return(fig)
+}
+
+get_curve_plot(x, A, B)
+```
+
+Чтобы изобразить $N$ равномерно распределенных точек на этой кривой, посчитаем ее длину.
+
+Мы знаем, что если плоская кривая задана уравнением $y = f(x)$, где $f$ --- гладкая функция на отрезке значений параметра $[a,b]$, то длина кривой определяется по формуле: $$L = \int_a^b{\sqrt{1+\left(f'(x)\right)^2}dx}.$$
+
+```{r length of curve, warning=FALSE, message = FALSE}
+get_curve_length <- function(df, a, b) 
+{
+  integrate(function(x) { sqrt(1+df(x)^2) }, lower = a, upper = b)$value
+}
+```
+
+Напишем функцию, которая генерирует датафрейм с координатами нужных точек.
+
+```{r getting points, warning=FALSE, message = FALSE}
+get_points <- function(f, df, n, a, b)
+{
+  L <- get_curve_length(df, a, b)
+  
+  y_val <- runif(n)*(L+abs(b-a))
+  
+  cond <- y_val <= L
+  g <- function(p) uniroot(function(t){ return(get_curve_length(df,a,t)-p) }, c(a,b))$root
+  if (length(y_val[cond]) != 0) 
+  {
+    y_val[cond] <- sapply(y_val[cond], g)
+  }
+  if (length(y_val[!cond]) != 0)
+  {
+    y_val[!cond] <- y_val[!cond] - L
+  }
+  x_val <- rep(0, n)
+  x_val[cond] <- sapply(y_val[cond], f)
+  
+  return(data.frame("X" = x_val, "Y" = y_val))
+}
+
+rpoints_df <- get_points(x, dx, N, A, B)
+```
+
+Используя полученный датафрейм, напишем функцию, изображающие эти точки.
+
+```{r the points plot, warning=FALSE, message = FALSE}
+get_points_plot <- function(points_df)
+{  
+  fig <- plot_ly(x = points_df$X, y = points_df$Y, name = "points", type = 'scatter',
+                 mode = 'markers', color = I('darkred'), alpha = 0.3)
+  fig <- fig %>% layout(title = "The Points Plot",
+                        xaxis = list(title = 'x', range = c(-0.05, 0.5)),
+                        yaxis = list(title = 'y')) 
+  return(fig)
+}
+```
+
+Выведем полученные изображения:
+
+```{r the plot, warning=FALSE, message = FALSE}
+subplot(
+  get_curve_plot(x, A, B),
+  get_points_plot(rpoints_df) %>%
+    layout(title = "") # %>%
+#    add_trace(x = seq(-1,1, length.out = 1000),
+#              y = sqrt(1 - seq(-1,1, length.out = 1000)^2),
+#              mode = "lines")
+)
+```
+
+### Пункт № 2
+Методом Монте-Карло оценить среднее значение параметра $m$ (наименьшая медиана) треугольника, вершины которого независимо выбраны из распределения пункта 1. Для этого понадобится большое число случайных треугольников, сгенерированных независимо друг от друга. Оценкой искомой величины будет среднее арифметическое выборки.
+
+Построить выборку объема $N \ge 10^4$ величины $m$. Вывести в pdf файл график зависимости среднего арифметического $s_n$ первых $n$ элементов от $n$. Для десяти равноотстоящих друг от друга значений $n$ отметить на графике интервалы $(a_n, b_n)$, такие что $\textbf{P}(a_n \le \mathbb{E}m \le b_n) \ge 0.95$. При каком объеме выборки $|a_N-b_N|$ станет меньше $0.1$?
+
+#### Решение
+
+Напишем функцию, которая генерирует один треугольник.
+
+```{r triangle, warning=FALSE, message = FALSE}
+generate_triangle <- function(...) 
+{
+  vertices_df <- get_points(x, dx, 3, A, B)
+  vertices <- list(
+    A = c(X = vertices_df[1,1], Y = vertices_df[1,2]),
+    B = c(X = vertices_df[2,1], Y = vertices_df[2,2]),
+    C = c(X = vertices_df[3,1], Y = vertices_df[3,2])
+  ) 
+  return(vertices)
+}
+```
+
+Пусть теперь $N$ --- размер выборки. С помощью созданной функции сгенерируем $N$ таких треугольников.
+
+```{r triangles, warning=FALSE, message = FALSE}
+N <- 15000
+generate_triangles <- function(n) lapply(1:n, generate_triangle)
+triangles_list <- generate_triangles(N)
+```
+
+Теперь напишем функцию, которая по вершинам треугольника считает его медианы. Например, для $\bigtriangleup ABC$, где $M$ --- середина стороны $BC$, функция $get\_median(A, B, C)$ вернет длину отрезка $AM$. Затем найдем минимальную из них.
+
+
+```{r median, warning=FALSE, message = FALSE}
+get_dist <- function(p1, p2) sqrt((p1["X"]-p2["X"])^2+(p1["Y"]-p2["Y"])^2)
+
+get_median <- function(v1, v2, v3)
+{
+  mid_v2_v3 <- c((v2["X"]+v3["X"])/2, (v2["Y"]+v3["Y"])/2)
+  return(get_dist(v1,mid_v2_v3))
+}
+  
+get_min_median <- function(v1, v2, v3) 
+  min(c(get_median(v1, v2, v3), get_median(v2, v1, v3), get_median(v3, v1, v2)))
+```
+
+Поскольку данные для работы представлены в виде списка треугольников, состоящего из списка вершин, для упрощения напишем функцию, которая берет на вход треугольник и возвращает его минимальную медиану.
+
+```{r min median, warning=FALSE, message = FALSE}
+get_min_median_of_triangle <- function(triangle)
+{
+  get_min_median(triangle$A, triangle$B, triangle$C)
+}
+
+min_medians <- sapply(triangles_list, get_min_median_of_triangle)
+```
+
+Оценим среднее значение параметра $m$, посчитав среднее арифметическое выборки.
+
+```{r straight mean median, warning=FALSE, message = FALSE, echo = FALSE}
+paste("Estimation of m:", mean(min_medians))
+```
+
+Заведем функцию, которая для $n$ находит $(a_n, b_n)$ такие, что $\textbf{P}(a_n \le \mathbb{E}\,m \le b_n) \ge 0.95$, используя неравенство Хёфдинга.
+
+```{r getting interval, warning=FALSE, message = FALSE}
+get_interval <- function(x) 
+{
+  return(c(a = mean(x)-sqrt(-log(0.025)/length(x)/2),
+           b = mean(x)+sqrt(-log(0.025)/length(x)/2)))
+}
+```
+
+Построим график зависимости среднего арифметического первых $n$ элементов от $n$. Затем отметим на нем искомые интервалы $(a_n, b_n)$.
+
+```{r mean median plot, warning=FALSE, message = FALSE}
+apply_to_subsets <- function(f, x, by = 1)
+{
+  x_n <- sapply(seq(by,length(x),by = by), function(k) { x[1:k] })
+  return(lapply(x_n, f))
+}
+
+get_mean_plot <- function(x)
+{
+  n <- 1:length(x)
+  mean_val <- apply_to_subsets(mean, x)
+  
+  fig <- plot_ly(x = n, y = mean_val, name = "mean", type = 'scatter', mode = 'lines',
+                 color = I('darkred'), alpha = 0.5)
+  fig <- fig %>% layout(title = "Mean Plot", showlegend = FALSE,
+                        xaxis = list(title = 'n'),
+                        yaxis = list(title = 'mean'))
+  intervals_x <- seq(length(n)%/%10, length(mean_val), by = length(n)%/%10)
+  intervals_y <- apply_to_subsets(get_interval, unlist(mean_val), by = length(n)%/%10)
+  for(i in 1:length(intervals_x)) 
+  {
+    fig <- fig %>% add_trace(x = rep(intervals_x[i],2), y = intervals_y[[i]], alpha = 0.3,
+                           type = 'scatter', mode = 'markers', color = I('darkblue'),
+                           line = list(dash = 'dash', width = 1))
+  }
+  return(fig)
+}
+
+get_mean_plot(min_medians)
+```
+
+Найдем объем выборки $N$, при котором $|a_N - b_N| < 0.1$.
+
+```{r N, warning=FALSE, message = FALSE}
+which_N <- function(g, x, eps, N_start = 11800)
+{
+  while(g(x, N_start) >= eps)
+  {
+    N_start <- N_start + 1
+  }
+  return(N_start)
+}
+
+paste('N = ', which_N(function(x, N)
+{
+  interval <- get_interval(x[1:N])
+  return(abs(interval[1] - interval[2]))
+}, unlist(apply_to_subsets(mean, min_medians)), 0.1))
+```
+
+
+### Пункт № 3
+Методом Монте-Карло оценить вероятность события <<произведение углов меньше произведения сторон>> так, чтобы вероятность отличия оценки от истинного значения больше чем на $0.05$ была менее $1 \%$.  
+
+#### Решение
+Функция $get\_angle(A,B,C)$ считает угол $\angle BAC$ в радианах.
+
+```{r getting angles, warning=FALSE, message = FALSE}
+get_angle <- function(A, B, C) 
+{
+  a <- get_dist(C, B)
+  b <- get_dist(A, C)
+  c <- get_dist(A, B)
+  cos_A <- round((b^2+c^2-a^2)/(2*b*c), 6)
+  return(acos(cos_A))
+}
+```
+
+Напишем функцию, которая получает произведения углов и сторон треугольника, используя данные о вершинах этого треугольника.
+
+```{r multiplication of angles and of borders, warning=FALSE, message = FALSE}
+multiply_angles <- function(v1, v2, v3) get_angle(v1, v2, v3)*get_angle(v2, v1, v3)*get_angle(v3, v1, v2)
+multiply_edges <- function(v1, v2, v3) get_dist(v1, v2)*get_dist(v1, v3)*get_dist(v3, v2)
+```
+
+Повторим процедуру, но для треугольников.
+
+```{r multiplication of angles and borders by triangle, warning=FALSE, message = FALSE}
+multiply_angles_of_triangle <- function(triangle) multiply_angles(triangle$A, triangle$B, triangle$C)
+multiply_edges_of_triangle <- function(triangle) multiply_edges(triangle$A, triangle$B, triangle$C)
+```
+
+Рассмотрим неравенство Хёфдинга: 
+$$\textbf{P}\left(\left|\frac{s_n}{n} - \mu\right| > \varepsilon\right) \le 2\,e^{-\frac{2n^2\varepsilon^2}{\sum_{i=1}^n\,(b_i-a_i)^2}}.$$
+$\textbf{P} = 0.01$ и $\varepsilon = 0.05$ по условию, а $a_i = 0$, $b_i = 1$, так как мы хотим оценить вероятность. Подставим эти значения и выразим $n$: 
+$$n \ge -\frac{\log{0.005}}{2\cdot0.05^2}.$$
+
+Для решения задачи возьмем целое минимальное $n$, то есть $n_{min} = 1060$, и сгенерируем ровно столько треугольников, так как при увеличении $n$ разница между истинным и оцениваемым значениями будет только убывать.
+
+Вычислим необходимые произведения. Сравним произведение углов с произведением вершин в каждом треугольнике. Найденное среднее, стремящееся к матожиданию данного события, и будет искомой оценкой вероятности.
+
+```{r get multiplication of angles and borders, warning=FALSE, message = FALSE}
+n_min <- round(-log(0.005)/(0.005))
+
+get_mean_comp_mult <- function(n) 
+{
+  triangles_list <- generate_triangles(n)
+  mult_angles <- lapply(triangles_list, multiply_angles_of_triangle)
+  mult_edges <- lapply(triangles_list, multiply_edges_of_triangle) 
+  ma_less_me <- as.numeric(unlist(mult_angles)[!is.na(mult_angles)] < unlist(mult_edges)[!is.na(mult_angles)])
+  return(mean(ma_less_me))
+}
+
+paste("Estimation of probability: ", get_mean_comp_mult(n_min))
+```
+
+Построив гистограмму $100$ оценок вероятности, убедимся, что отклонения на $0.05$ действительно не превосходят $1 \%$:
+
+```{r check, warning=FALSE, message = FALSE, echo = FALSE}
+get_hist <- function(N, n_min)
+{
+  x <- sapply(rep(n_min, N), get_mean_comp_mult)
+  fig <- plot_ly(x = x, type = "histogram", color = I('darkred'), alpha = 0.7)
+  fig <- fig %>% layout(xaxis = list(title = 'Estimation of probability'))
+  return(fig)
+}
+
+get_hist(100, n_min)
+```
+

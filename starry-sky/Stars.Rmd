@@ -1,0 +1,117 @@
+---
+title: "Звёзды"
+author: "Даша Крутикова"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set()
+```
+
+### Задача
+
+Написать программу, рисующую звездное небо. На картинке отобразить звезды до пятой величины в проекции Каврайского. Размеры изображений звезд выбрать примерно пропорциональными их яркости.
+
+Добавить к рисунку эклиптику и границы созвездия Водолей. В заголовке указать проекцию и созвездие. По желанию: раскрасить звезды соответственно их спектральному классу.
+
+Указание. Поскольку на небесную сферу мы смотрим изнутри, при использовании картографических проекций, восток и запад следует поменять местами.
+
+#### Решение
+
+```{r libs, message=FALSE, warning=FALSE}
+library(plotly)
+library(colorspace)
+```
+
+Считаем данные из таблицы и оставим только те, у которых звездная величина меньше пяти.
+
+```{r data}
+stars <- read.table("stars.dat", header = T, sep = "|", comment.char = "%")
+stars <- stars[stars[,"Mag.V"] < 5,]
+```
+
+Создадим табличку для хранения некоторых данных: первые три места отведем под прямое восхождение (часы, минуты, секунды), а последние три --- под склонение (градусы, угловые минуты, угловые секунды).
+
+При этом прямое восхождение и склонение переведем в радианы, что будет соответствовать земным долготе ($\lambda$) и широте ($\varphi$). Далее воспользуемся формулой $$\begin{cases} x=\frac{3\lambda}{2}\sqrt{\frac{1}{3}-\left(\frac{\varphi}{\pi}\right)^2},\\ y=\varphi \end{cases}$$ для перевода полученных координат в проекцию Каврайского.
+
+```{r table_of_coord}
+coordinates_of_stars <- unlist(strsplit(stars$coord1..ICRS.J2000.2000., " "))
+coordinates_of_stars <- coordinates_of_stars[coordinates_of_stars != ""]
+coordinates_of_stars <- matrix(coordinates_of_stars, ncol = 6, byrow = T)
+
+RA <- ((as.numeric(coordinates_of_stars[,1]) + (as.numeric(coordinates_of_stars[,2]))/60 + 
+       (as.numeric(coordinates_of_stars[,3]))/3600) * pi / 12) - pi
+Dec <- (as.numeric(coordinates_of_stars[,4]) + (as.numeric(coordinates_of_stars[,5]))/60 + 
+       (as.numeric(coordinates_of_stars[,6]))/3600) * pi / 180
+new_coordinates <- matrix(c(3 / 2 * RA * sqrt((1 / 3) - (Dec / pi) ^ 2), Dec), ncol = 2)
+```
+
+Определим цвета звезд в соответствии с их спектральным классом.
+
+```{r colors}
+colour <- substr(stars[,"spec..type"], 1, 1)
+otherwise <- colour != "O" & colour != "B" & colour != "A" & colour != "F" & 
+             colour != "G" & colour != "K" & colour != "M"
+colour[colour == "O"] <- 'rgb(111, 158, 240)'
+colour[colour == "B"] <- 'rgb(161, 197, 240)'
+colour[colour == "A"] <- 'rgb(255, 255, 255)'
+colour[colour == "F"] <- 'rgb(245, 234, 135)'
+colour[colour == "G"] <- 'rgb(250, 239, 43)'
+colour[colour == "K"] <- 'rgb(245, 139, 0)'
+colour[colour == "M"] <- 'rgb(245, 41, 33)'
+colour[otherwise] <- 'rgb(238, 119, 250)'
+```
+
+Cчитаем координаты границ созвездия Водолей и переведем их в проекцию Каврайского.
+
+```{r aqr}
+AQR <- read.table("AQR.dat", sep = " ")
+
+alpha <- (as.numeric(AQR[,1]) * pi / 12) - pi
+delta <- as.numeric(AQR[,2]) * pi / 180
+AQR <- matrix(c(3 / 2 * alpha * sqrt((1 / 3) - (delta / pi) ^ 2), delta), ncol = 2)
+```
+
+Вычислим координаты эклиптики.
+
+```{r ecliptic}
+delta_ecl <- asin(sin(23.5 * pi / 180) * sin(c(1:180) * pi / 180))
+alpha_ecl <- (acos(cos(c(1:180) * pi / 180) / cos(delta_ecl))) - pi 
+
+delta_ecl <- c(delta_ecl, asin(sin(23.5 * pi / 180) * sin(c(360:181) * pi / 180)))
+alpha_ecl <- c(alpha_ecl, acos(cos(c(360:181) * pi / 180) / cos(delta_ecl[181:360])))
+
+ecliptic <- matrix(c(3 / 2 * alpha_ecl * sqrt((1 / 3) - (delta_ecl / pi) ^ 2), delta_ecl), ncol = 2)
+```
+
+Укажем яркость звезд для дальнейшего выбора размера. Переведем все полученные таблички координат в датафреймы, чтобы нарисовать график.
+
+```{r df}
+star_size <- as.numeric(stars[,"Mag.V"])
+star_size <- exp(-star_size/6)*2.5
+
+coord_df <- as.data.frame(new_coordinates)
+bound_df <- as.data.frame(AQR)
+eclip_df <- as.data.frame(ecliptic)
+```
+
+Нарисуем требующуюся в задании картинку при помощи пакета Plotly.
+
+```{r plot, message=FALSE, warning=FALSE}
+fig <- plot_ly(data = coord_df, x = -coord_df$V1, y = coord_df$V2,type = 'scatter',
+               mode = 'markers', marker = list(size = star_size,color = colour,line = list(width = 0)),
+               name = 'stars')
+fig <- fig %>% layout(title = 'Kavrayskiy projection, Aquarius',
+                      yaxis = list(zeroline = F, showgrid = F),
+                      xaxis = list(zeroline = F, showgrid = F),
+                      showlegend = F,
+                      plot_bgcolor = 'rgb(0, 0, 51)')
+
+fig <- fig %>% add_trace(data = bound_df, x = -bound_df$V1, y = bound_df$V2,
+                         mode = 'lines', color = I('white'),line = list(width = 0.5),
+                         marker = list(size = 0.5), name = 'AQR boundaries')
+fig <- fig %>% add_trace(data = eclip_df, x = -eclip_df$V1, y = eclip_df$V2, 
+                         mode = 'lines', color = I('red'),line = list(width = 0.5),
+                         marker = list(size = 0.5), name = 'ecliptic')
+
+fig
+```

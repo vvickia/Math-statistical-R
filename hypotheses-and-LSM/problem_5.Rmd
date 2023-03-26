@@ -1,0 +1,177 @@
+---
+title: "Problem 5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+read.tcsv <- function(file, header=TRUE, sep=",", ...) 
+{
+  n <- max(count.fields(file, sep=sep), na.rm=TRUE)
+  x <- readLines(file)
+  
+  .splitvar <- function(x, sep, n) {
+    var <- unlist(strsplit(x, split=sep))
+    length(var) <- n
+    return(var)
+  }
+  
+  x <- do.call(cbind, lapply(x, .splitvar, sep=sep, n=n))
+  x <- apply(x, 1, paste, collapse=sep)
+  out <- read.csv(text=x, sep=sep, header=header, na.strings = "", ...)
+  return(out)
+}
+library(plotly)
+```
+
+### Задача № 1
+
+```{r first, warning=FALSE, message=FALSE}
+F_ <- function(x, v = c(4, 2, 5),p = c(0.5, 0.1, 0.4)) 
+  ifelse(x < 0, 0 , 1-p[1]*pexp(v[1]/x - 3, 3) - p[2]*pexp(v[2]/x - 3, 3) - p[3]*pexp(v[3]/x - 3, 3))
+
+plot_ly(x = seq(-1, 3, 0.001), y = F_(seq(-1, 3, 0.001)), type = 'scatter',
+        mode = 'lines', line = list(color = 'rgba(255, 167, 36 .9)'))
+```
+
+```{r first1}
+Val <- read.csv("data.csv",header = FALSE, sep = ',')
+
+q <- function(y) uniroot(function(x){ return(F_(x) - y)},c(-3, 11), tol = 1e-6)$root
+
+qch <- function(y) uniroot(function(x){ return(pchisq(x, 4) - y) },c(-3, 11))$root
+
+get_pv_pvalue <- function(Val) 
+{
+  parts <- sapply(1:4*0.2, q)
+  np <- ncol(Val) / 5
+  quantity <- matrix(
+    c(
+      apply(Val, FUN = function(x) length(x[x < parts[1]]), MARGIN = 1),
+      apply(Val, FUN = function(x) length(x[x < parts[2] & x > parts[1]]), MARGIN = 1),
+      apply(Val, FUN = function(x) length(x[x < parts[3] & x > parts[2]]), MARGIN = 1),
+      apply(Val, FUN = function(x) length(x[x < parts[4] & x > parts[3]]), MARGIN = 1),
+      apply(Val, FUN = function(x) length(x[x > parts[4]]), MARGIN = 1)
+    ), ncol = 5)
+  M <- apply(Val, sum, MARGIN = 1) / ncol(Val)
+  k <- sqrt(apply((Val - matrix(rep(M, ncol(Val)), ncol = ncol(Val)))^2,
+                  sum, MARGIN = 1)/(ncol(Val) - 1))
+  pv <- apply((quantity - np) ^ 2 / np, sum, MARGIN = 1)
+  pvalue <- sapply(pv, function(x) integrate(dchisq,x,Inf, 4)$value) 
+  return(list(k = k, pv = pv, pvalue = pvalue))
+}
+
+
+get_abcd <- function(pvalue) list(a = q(pvalue), b = q(1 - pvalue), c = qch(1 - pvalue), d = qchisq(0.95, 4))
+
+data.frame(pvalue = get_pv_pvalue(Val)$pvalue, 
+           "is okay" = get_pv_pvalue(Val)$pv < qchisq(0.95, 4))
+```
+
+```{r plot}
+get_plot <- function(pvalue, f) 
+{
+  abcd <- get_abcd(pvalue)
+  a <- abcd$a
+  b <- abcd$b
+  d <- abcd$d
+  fig <- plot_ly(x =  seq(-3, 11, 0.001),  y = f(seq(-3, 11, 0.001)), type = 'scatter',
+                 mode = 'lines', line = list(color = 'rgba(255, 167, 36 .9)'))
+  fig <- fig %>% add_trace(x = c(d, d), y = c(0, f(d)),
+                          line = list(color = 'rgba(0, 179, 18 .6)', dash = 'dash'))
+  fig <- fig %>% add_trace(x = c(d, 11), y = c(0,0), line = list(color = "green"))
+  fig <- fig %>% layout(title = "", legend = list(orientation = 'h'),
+                        showlegend = F, xaxis = list(title = ""),
+                        yaxis = list (title = ""))
+  
+  cat(paste0("alpha = 0.05 ", "pvalue = ",pvalue))
+  return(fig)
+}
+
+get_plot(get_pv_pvalue(Val)$pvalue[get_pv_pvalue(Val)$pv < qchisq(0.95, 4)],
+         function(x) pchisq(x,4))
+```
+
+
+```{r plot1}
+get_plot1 <- function(pvalue) 
+{
+  abcd <- get_abcd(pvalue)
+  c <- abcd$c
+  d <- abcd$d
+  fig <- plot_ly(x = seq(0, 11, 0.001), y = dchisq(seq(0, 11, 0.001), 4),
+                 line = list(color = 'rgba(255, 167, 36 .9)'), 
+                 type = 'scatter', mode = 'lines')
+  fig <- fig %>% add_trace(x = c(d, d), y = c(0, dchisq(d,4)),
+                           line = list(color = 'rgba(0, 179, 18 .6)', dash = 'dash'))
+  fig <- fig %>% add_trace(x = c(c, 11), y = c(0,0), 
+                           line = list(color = 'rgba(255, 18, 18 .6)', dash = 'dash'))
+  fig <- fig %>% add_trace(x = c(c, c), y = c(0, dchisq(c,4)),
+                           line = list(color = 'rgba(255, 18, 18 .6)', dash = 'dash'))
+  fig <- fig %>% add_trace(x = c(d, 11), y = c(0,0), line = list(color = "green"))
+  
+  fig <- fig %>% layout(title = "", legend = list(orientation = 'h'),
+                        showlegend = F, xaxis = list(title = ""),
+                        yaxis = list (title = ""))
+  
+  cat(paste0("alpha = 0.05 ", "pvalue = ",pvalue))
+  return(fig)
+}
+
+get_plot1(get_pv_pvalue(Val)$pvalue[get_pv_pvalue(Val)$pv < qchisq(0.95, 4)])
+```
+
+### Задача № 2
+
+```{r second, message=F}
+data1_csv <- read.tcsv("data1.csv", sep = ',')[1:11,1:2]
+
+acceleration <- function(t, a) 0.7 + a*(t + 1)/(t + 2) 
+
+get_theta <-function(t, x) 
+{
+  X <- matrix(c(t^2/2 + t - (t+2)*log(t+2), t, 1+0.35*t^2), ncol = 3,
+              nrow = length(t))
+  return(list(value = (solve(t(X) %*% X) %*% t(X)) %*% x, X = X))
+}
+
+get_x_t <- function(t, x) 
+{
+  theta <- get_theta(t, x)$value
+  x_t <- function(t) theta[1,1]*(t^2/2 + t  - (t+2)*log(t+2)) + theta[2,1]*t + theta[3,1] + 0.35*t^2
+  return(x_t)
+}
+
+get_aprox_plot <- function(t, x) 
+{
+  fig <- plot_ly(x = t, y = x,type = "scatter",
+                 marker = list(size = 10, color = 'rgba(255, 182, 193, .9)',
+                               line = list(color = 'rgba(152, 0, 0, .8)', width = 2)))
+  T_ <- seq(0, 6 , 0.001)
+  x_t <- get_x_t(t,x)
+  fig <- fig %>% add_trace(x = T_, y = x_t(T_), type = "scatter", mode = "lines",
+                           marker = list(size = 0.1, line = list(width = 0.1)))
+  fig <- fig %>% layout(title = "", showlegend = F, xaxis = list(title = ""),
+                        yaxis = list (title = ""))
+  return(fig)
+}
+
+get_aprox_plot(as.numeric(data1_csv[,1]),as.numeric(data1_csv[,2]))
+```
+
+```{r second1}
+fn <- function(t, x) 
+{
+  X_ <- get_theta(t, x)$X
+  theta <- get_theta(t, x)$value
+  sigma_sq <- 1/(length(x) - length(theta))*sum((x - (X_ %*% theta))^2)
+  cov_matrix <- sigma_sq*(solve((t(X_) %*% X_)))
+  Val1 <- matrix(c(1.5 - 3*log(3), 1, 1,
+                   1 - log(3), 1, 0,
+                   2/3, 0, 0), ncol=3, nrow=3, byrow = TRUE)
+  cov_matrix_vect <- Val1 %*% cov_matrix %*% t(Val1)
+  return(cov_matrix_vect)
+}
+
+fn(as.numeric(data1_csv[,1]), as.numeric(data1_csv[,2]))
+```
